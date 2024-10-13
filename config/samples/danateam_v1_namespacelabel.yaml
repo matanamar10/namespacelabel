@@ -1,0 +1,9 @@
+apiVersion: danateam.namespacelabel.io/v1
+kind: NamespaceLabel
+metadata:
+  labels:
+    app.kubernetes.io/name: namespacelabel
+    app.kubernetes.io/managed-by: kustomize
+  name: namespacelabel-sample
+spec:
+  # TODO(user): Add fields here

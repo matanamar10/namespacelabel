@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- danateam_v1_namespacelabel.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
