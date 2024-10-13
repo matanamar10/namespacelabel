@@ -20,28 +20,35 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+type Condition struct {
+	Type               string      `json:"type"`
+	Status             string      `json:"status"`
+	Reason             string      `json:"reason,omitempty"`
+	Message            string      `json:"message,omitempty"`
+	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty"`
+}
 
 // NamespaceLabelSpec defines the desired state of NamespaceLabel
 type NamespaceLabelSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of NamespaceLabel. Edit namespacelabel_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
-// NamespaceLabelStatus defines the observed state of NamespaceLabel
 type NamespaceLabelStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	Applied bool `json:"applied,omitempty"`
+
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	Conditions []Condition `json:"conditions,omitempty"`
+
+	Message string `json:"message,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 
-// NamespaceLabel is the Schema for the namespacelabels API
 type NamespaceLabel struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
