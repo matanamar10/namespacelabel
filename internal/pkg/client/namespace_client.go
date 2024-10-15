@@ -7,7 +7,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// NamespaceLabelClient defines the interface for operations related to Namespace and NamespaceLabel CRs.
+// NamespaceLabelClient defines the interface for Namespace and NamespaceLabel operations.
 type NamespaceLabelClient interface {
 	GetNamespace(ctx context.Context, name string) (*corev1.Namespace, error)
 	ListNamespaceLabels(ctx context.Context, namespace string) ([]danateamv1.NamespaceLabel, error)
