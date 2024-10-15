@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"k8s.io/apimachinery/pkg/runtime"
 	"sort"
 
 	"github.com/go-logr/logr"
@@ -13,6 +12,9 @@ import (
 	"github.com/matanamar10/namesapcelabel/internal/pkg/status"
 	"github.com/matanamar10/namesapcelabel/internal/pkg/utils"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors" // Correct import for error checking
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -21,24 +23,35 @@ type NamespaceLabelReconciler struct {
 	Logger          logr.Logger
 	ProtectedLabels set.Set[string]
 	Scheme          *runtime.Scheme
+	Recorder        record.EventRecorder // EventRecorder for events
 }
 
+// Reconcile performs the reconciliation for NamespaceLabel resources.
 func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	nsLabels, err := r.Client.ListNamespaceLabels(ctx, req.Namespace)
 	if err != nil {
+		// Record a warning event for failing to list NamespaceLabels
+		r.Recorder.Eventf(nil, corev1.EventTypeWarning, "NamespaceLabelListFailed", "Failed to list NamespaceLabels for namespace %s: %v", req.Namespace, err)
 		return ctrl.Result{}, err
 	}
 
 	namespace, err := r.Client.GetNamespace(ctx, req.Namespace)
 	if err != nil {
+		if errors.IsNotFound(err) {
+			r.Recorder.Eventf(nil, corev1.EventTypeWarning, "NamespaceNotFound", "Namespace %s not found", req.Namespace)
+			return ctrl.Result{}, nil
+		}
+		r.Recorder.Eventf(nil, corev1.EventTypeWarning, "NamespaceFetchFailed", "Failed to fetch Namespace %s: %v", req.Namespace, err)
 		return ctrl.Result{}, err
 	}
 
 	combinedLabels := r.combineLabels(nsLabels)
 	if err := r.applyLabels(ctx, namespace, combinedLabels); err != nil {
+		r.Recorder.Eventf(namespace, corev1.EventTypeWarning, "LabelSyncFailed", "Failed to apply labels for namespace %s", req.Namespace)
 		return r.handleLabelSyncError(ctx, nsLabels, err)
 	}
 
+	r.Recorder.Eventf(namespace, corev1.EventTypeNormal, "Reconciled", "Successfully reconciled Namespace %s", req.Namespace)
 	return r.handleSuccessfulReconciliation(ctx, nsLabels, namespace)
 }
 
@@ -65,9 +78,16 @@ func (r *NamespaceLabelReconciler) applyLabels(ctx context.Context, namespace *c
 		namespace.Labels = make(map[string]string)
 	}
 
-	// Use the generic MergeMaps function to merge labels into the Namespace's labels
 	namespace.Labels = utils.MergeMaps(namespace.Labels, combinedLabels)
-	return r.Client.UpdateNamespace(ctx, namespace)
+
+	err := r.Client.UpdateNamespace(ctx, namespace)
+	if err != nil {
+		r.Recorder.Eventf(namespace, corev1.EventTypeWarning, "LabelSyncFailed", "Failed to update labels for namespace %s: %v", namespace.Name, err)
+		return err
+	}
+
+	r.Recorder.Eventf(namespace, corev1.EventTypeNormal, "LabelsApplied", "Successfully applied labels to namespace %s", namespace.Name)
+	return nil
 }
 
 func (r *NamespaceLabelReconciler) handleSuccessfulReconciliation(ctx context.Context, nsLabels []danateamv1.NamespaceLabel, namespace *corev1.Namespace) (ctrl.Result, error) {
@@ -92,13 +112,16 @@ func (r *NamespaceLabelReconciler) handleLabelSyncError(ctx context.Context, nsL
 		_ = r.Client.UpdateNamespaceLabelStatus(ctx, &nsLabel)
 	}
 	r.Logger.Error(err, "Failed to apply labels to the Namespace")
+	r.Recorder.Eventf(nil, corev1.EventTypeWarning, "LabelSyncFailed", "Failed to apply labels for Namespace")
 	return ctrl.Result{}, err
 }
 
 func (r *NamespaceLabelReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.ProtectedLabels = labelmanager.LoadProtectedLabelsFromEnv()
 	r.Logger = ctrl.Log.WithName("namespaceLabelController")
-	r.Scheme = mgr.GetScheme() // Set the scheme from the manager
+	r.Scheme = mgr.GetScheme()
+	r.Recorder = mgr.GetEventRecorderFor("namespaceLabelController") // Initialize EventRecorder
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&danateamv1.NamespaceLabel{}).
 		Complete(r)
