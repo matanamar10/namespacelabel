@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"sync"
 
 	"github.com/go-logr/logr"
 	danateamv1 "github.com/matanamar10/namesapcelabel/api/v1"
@@ -25,32 +26,57 @@ type NamespaceLabelReconciler struct {
 	Recorder        record.EventRecorder
 }
 
-// Reconcile performs the reconciliation for NamespaceLabel resources.
 func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	nsLabels, err := r.Client.ListNamespaceLabels(ctx, req.Namespace)
 	if err != nil {
 		r.Recorder.Eventf(nil, corev1.EventTypeWarning, "NamespaceLabelListFailed", "Failed to list NamespaceLabels for namespace %s: %v", req.Namespace, err)
 		return ctrl.Result{}, utils.WrapError("Listing NamespaceLabels failed", err)
 	}
 
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(nsLabels))
+
 	for _, nsLabel := range nsLabels {
-		if !nsLabel.DeletionTimestamp.IsZero() {
-			if err := finalizer.HandleFinalizer(ctx, r.Client, r.Logger, r.Recorder, &nsLabel); err != nil {
-				return ctrl.Result{}, utils.WrapError("Handling finalizer failed", err)
+		wg.Add(1)
+		go func(nsLabel danateamv1.NamespaceLabel) {
+			defer wg.Done()
+			if !nsLabel.DeletionTimestamp.IsZero() {
+				if err := finalizer.HandleFinalizer(ctx, r.Client, r.Logger, r.Recorder, &nsLabel); err != nil {
+					errCh <- utils.WrapError("Handling finalizer failed", err)
+				}
+				return
 			}
-			continue
-		}
 
-		if err := finalizer.AddFinalizer(ctx, r.Client, r.Logger, &nsLabel); err != nil {
-			return ctrl.Result{}, utils.WrapError("Adding finalizer failed", err)
-		}
+			if err := finalizer.AddFinalizer(ctx, r.Client, r.Logger, &nsLabel); err != nil {
+				errCh <- utils.WrapError("Adding finalizer failed", err)
+				return
+			}
 
-		combinedLabels := r.combineLabels(nsLabels)
-		if err := r.applyLabels(ctx, req.Namespace, combinedLabels); err != nil {
-			return r.handleLabelSyncError(ctx, nsLabels, err)
-		}
+			combinedLabels := r.combineLabels(nsLabels)
+			if err := r.applyLabels(ctx, req.Namespace, combinedLabels); err != nil {
+				errCh <- err
+				return
+			}
 
-		return r.handleSuccessfulReconciliation(ctx, nsLabels, req.Namespace)
+			if _, err := r.handleSuccessfulReconciliation(ctx, nsLabels, req.Namespace); err != nil {
+				errCh <- err
+				return
+			}
+
+			errCh <- nil
+		}(nsLabel)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	return ctrl.Result{}, nil
