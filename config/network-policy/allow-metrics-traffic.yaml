@@ -16,11 +16,11 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # This allows ingress traffic from any namespace with the label metrics: enabled
+    # This allows ingress traffic from any namespace with the labelmanager metrics: enabled
     - from:
       - namespaceSelector:
           matchLabels:
-            metrics: enabled  # Only from namespaces with this label
+            metrics: enabled  # Only from namespaces with this labelmanager
       ports:
         - port: 8443
           protocol: TCP

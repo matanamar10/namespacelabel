@@ -1,8 +1,9 @@
 package set
 
+// Set is a generic data structure that represents a set of unique items.
 type Set[T comparable] map[T]struct{}
 
-// NewSet creates a new generic set.
+// NewSet creates a new empty Set.
 func NewSet[T comparable]() Set[T] {
 	return make(Set[T])
 }

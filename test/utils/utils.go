@@ -94,7 +94,7 @@ func InstallCertManager() error {
 	// Wait for cert-manager-webhook to be ready, which can take time if cert-manager
 	// was re-installed after uninstalling on a cluster.
 	cmd = exec.Command("kubectl", "wait", "deployment.apps/cert-manager-webhook",
-		"--for", "condition=Available",
+		"--for", "status=Available",
 		"--namespace", "cert-manager",
 		"--timeout", "5m",
 	)

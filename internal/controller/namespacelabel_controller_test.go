@@ -78,7 +78,7 @@ var _ = Describe("NamespaceLabel Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+			// Example: If you expect a certain status status after reconciliation, verify it here.
 		})
 	})
 })
