@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"sort"
 
 	"github.com/go-logr/logr"
 	danateamv1 "github.com/matanamar10/namesapcelabel/api/v1"
@@ -17,7 +18,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-// NamespaceLabelReconciler reconciles a NamespaceLabel object.
 type NamespaceLabelReconciler struct {
 	Client          client.NamespaceLabelClient
 	Logger          logr.Logger
@@ -26,7 +26,6 @@ type NamespaceLabelReconciler struct {
 	Recorder        record.EventRecorder
 }
 
-// Reconcile is the core function that performs reconciliation for NamespaceLabel resources.
 func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	nsLabels, err := r.Client.ListNamespaceLabels(ctx, req.Namespace)
 	if err != nil {
@@ -59,17 +58,20 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ctrl.Result{}, nil
 }
 
-// combineLabels consolidates all labels from the NamespaceLabel objects.
 func (r *NamespaceLabelReconciler) combineLabels(nsLabels []danateamv1.NamespaceLabel) map[string]string {
 	combinedLabels := make(map[string]string)
+
+	sort.Slice(nsLabels, func(i, j int) bool {
+		return nsLabels[i].CreationTimestamp.Before(&nsLabels[j].CreationTimestamp)
+	})
+
 	for _, nsLabel := range nsLabels {
-		// ApplyNamespaceLabel directly without LabelManager instance
 		labelmanager.ApplyNamespaceLabel(nsLabel, combinedLabels, r.ProtectedLabels, r.Logger)
 	}
+
 	return combinedLabels
 }
 
-// applyLabels applies the combined labels to the target namespace.
 func (r *NamespaceLabelReconciler) applyLabels(ctx context.Context, namespaceName string, combinedLabels map[string]string) error {
 	namespace, err := r.Client.GetNamespace(ctx, namespaceName)
 	if err != nil {
@@ -85,7 +87,6 @@ func (r *NamespaceLabelReconciler) applyLabels(ctx context.Context, namespaceNam
 	return nil
 }
 
-// updateStatus updates the status of a NamespaceLabel object after successful label application.
 func (r *NamespaceLabelReconciler) updateStatus(ctx context.Context, nsLabel danateamv1.NamespaceLabel) error {
 	status.UpdateCondition(&nsLabel.Status, "LabelsApplied", "True", "Success", "Labels applied successfully")
 	nsLabel.Status.Applied = true
@@ -98,19 +99,16 @@ func (r *NamespaceLabelReconciler) updateStatus(ctx context.Context, nsLabel dan
 	return nil
 }
 
-// handleFinalizer processes finalizer logic for a NamespaceLabel resource.
 func (r *NamespaceLabelReconciler) handleFinalizer(ctx context.Context, nsLabel danateamv1.NamespaceLabel) error {
 	return finalizer.HandleFinalizer(ctx, r.Client, r.Logger, r.Recorder, &nsLabel)
 }
 
-// logEventAndReturnError logs an error, records an event, and returns the wrapped error.
 func (r *NamespaceLabelReconciler) logEventAndReturnError(obj runtime.Object, reason, message string, err error) (ctrl.Result, error) {
 	r.Logger.Error(err, message)
 	r.Recorder.Eventf(obj, corev1.EventTypeWarning, reason, message+": %v", err)
 	return ctrl.Result{}, err
 }
 
-// SetupWithManager sets up the controller with the Manager.
 func (r *NamespaceLabelReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.ProtectedLabels = labelmanager.LoadProtectedLabelsFromEnv() // Directly load the labels
 	r.Logger = ctrl.Log.WithName("namespaceLabelController")
