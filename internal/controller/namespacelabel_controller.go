@@ -25,23 +25,24 @@ type NamespaceLabelReconciler struct {
 	Recorder        record.EventRecorder
 }
 
+// Reconcile performs the reconciliation for NamespaceLabel resources.
 func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	nsLabels, err := r.Client.ListNamespaceLabels(ctx, req.Namespace)
 	if err != nil {
 		r.Recorder.Eventf(nil, corev1.EventTypeWarning, "NamespaceLabelListFailed", "Failed to list NamespaceLabels for namespace %s: %v", req.Namespace, err)
-		return ctrl.Result{}, err
+		return ctrl.Result{}, utils.WrapError("Listing NamespaceLabels failed", err)
 	}
 
 	for _, nsLabel := range nsLabels {
 		if !nsLabel.DeletionTimestamp.IsZero() {
 			if err := finalizer.HandleFinalizer(ctx, r.Client, r.Logger, r.Recorder, &nsLabel); err != nil {
-				return ctrl.Result{}, err
+				return ctrl.Result{}, utils.WrapError("Handling finalizer failed", err)
 			}
 			continue
 		}
 
 		if err := finalizer.AddFinalizer(ctx, r.Client, r.Logger, &nsLabel); err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, utils.WrapError("Adding finalizer failed", err)
 		}
 
 		combinedLabels := r.combineLabels(nsLabels)
@@ -66,7 +67,7 @@ func (r *NamespaceLabelReconciler) combineLabels(nsLabels []danateamv1.Namespace
 func (r *NamespaceLabelReconciler) applyLabels(ctx context.Context, namespaceName string, combinedLabels map[string]string) error {
 	namespace, err := r.Client.GetNamespace(ctx, namespaceName)
 	if err != nil {
-		return err
+		return utils.WrapError("Getting Namespace failed", err)
 	}
 
 	if namespace.Labels == nil {
@@ -74,7 +75,12 @@ func (r *NamespaceLabelReconciler) applyLabels(ctx context.Context, namespaceNam
 	}
 
 	namespace.Labels = utils.MergeMaps(namespace.Labels, combinedLabels)
-	return r.Client.UpdateNamespace(ctx, namespace)
+	if err := r.Client.UpdateNamespace(ctx, namespace); err != nil {
+		return utils.WrapError("Updating Namespace with new labels failed", err)
+	}
+
+	r.Recorder.Eventf(namespace, corev1.EventTypeNormal, "LabelsApplied", "Labels applied successfully to namespace %s", namespace.Name)
+	return nil
 }
 
 func (r *NamespaceLabelReconciler) handleSuccessfulReconciliation(ctx context.Context, nsLabels []danateamv1.NamespaceLabel, namespace string) (ctrl.Result, error) {
@@ -85,11 +91,12 @@ func (r *NamespaceLabelReconciler) handleSuccessfulReconciliation(ctx context.Co
 
 		if err := r.Client.UpdateNamespaceLabelStatus(ctx, &nsLabel); err != nil {
 			r.Logger.Error(err, "Failed to update NamespaceLabel status")
-			return ctrl.Result{}, err
+			return ctrl.Result{}, utils.WrapError("Updating NamespaceLabel status failed", err)
 		}
 	}
 
 	r.Logger.Info("Successfully reconciled NamespaceLabel", "namespace", namespace)
+	r.Recorder.Eventf(nil, corev1.EventTypeNormal, "ReconcileSuccess", "Successfully reconciled NamespaceLabel for namespace %s", namespace)
 	return ctrl.Result{}, nil
 }
 
@@ -99,7 +106,8 @@ func (r *NamespaceLabelReconciler) handleLabelSyncError(ctx context.Context, nsL
 		_ = r.Client.UpdateNamespaceLabelStatus(ctx, &nsLabel)
 	}
 	r.Logger.Error(err, "Failed to apply labels to the Namespace")
-	return ctrl.Result{}, err
+	r.Recorder.Eventf(nil, corev1.EventTypeWarning, "LabelSyncFailed", "Failed to apply labels to namespace: %v", err)
+	return ctrl.Result{}, utils.WrapError("Applying labels failed", err)
 }
 
 func (r *NamespaceLabelReconciler) SetupWithManager(mgr ctrl.Manager) error {
