@@ -6,17 +6,21 @@ import (
 	"time"
 )
 
+// UpdateCondition updates or appends a condition in the NamespaceLabelStatus conditions list.
 func UpdateCondition(status *danateamv1.NamespaceLabelStatus, conditionType, statusValue, reason, message string) {
+	// Fetch current time once to avoid calling time.Now() repeatedly
 	now := metav1.NewTime(time.Now())
+
+	// Iterate over the conditions and update if found
 	for i, condition := range status.Conditions {
 		if condition.Type == conditionType {
-			status.Conditions[i].Status = statusValue
-			status.Conditions[i].Reason = reason
-			status.Conditions[i].Message = message
-			status.Conditions[i].LastTransitionTime = now
-			return
+			// Update the condition if it matches the type
+			updateConditionFields(&status.Conditions[i], statusValue, reason, message, now)
+			return // Exit early since the condition has been updated
 		}
 	}
+
+	// Append new condition if the conditionType doesn't exist
 	status.Conditions = append(status.Conditions, danateamv1.Condition{
 		Type:               conditionType,
 		Status:             statusValue,
@@ -24,4 +28,12 @@ func UpdateCondition(status *danateamv1.NamespaceLabelStatus, conditionType, sta
 		Message:            message,
 		LastTransitionTime: now,
 	})
+}
+
+// updateConditionFields is a helper function to update the fields of a Condition object.
+func updateConditionFields(condition *danateamv1.Condition, statusValue, reason, message string, now metav1.Time) {
+	condition.Status = statusValue
+	condition.Reason = reason
+	condition.Message = message
+	condition.LastTransitionTime = now
 }
