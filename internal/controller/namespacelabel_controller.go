@@ -2,57 +2,22 @@ package controller
 
 import (
 	"context"
-	"os"
-	"strings"
-	"time"
 
 	"github.com/go-logr/logr"
 	danateamv1 "github.com/matanamar10/namesapcelabel/api/v1"
+	"github.com/matanamar10/namesapcelabel/internal/pkg/helpers"
+	"github.com/matanamar10/namesapcelabel/internal/pkg/set"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-type Set[T comparable] map[T]struct{}
-
-// NewSet creates a new generic set.
-func NewSet[T comparable]() Set[T] {
-	return make(Set[T])
-}
-
-// Add adds a value to the Set.
-func (s Set[T]) Add(value T) {
-	s[value] = struct{}{}
-}
-
-// Contains checks if a value exists in the Set.
-func (s Set[T]) Contains(value T) bool {
-	_, exists := s[value]
-	return exists
-}
-
-// NamespaceLabelReconciler reconciles a NamespaceLabel object.
 type NamespaceLabelReconciler struct {
 	client.Client
 	Logger          logr.Logger
-	ProtectedLabels Set[string] // Protected labels loaded from environment variables
-}
-
-func loadProtectedLabelsFromEnv() Set[string] {
-	labels := os.Getenv("PROTECTED_LABELS")
-	if labels == "" {
-		labels = "kubernetes.io/managed-by,kubernetes.io/created-by,control-plane,cluster-owner" // Default protected labels
-	}
-
-	protectedSet := NewSet[string]()
-	for _, label := range strings.Split(labels, ",") {
-		protectedSet.Add(label)
-	}
-	return protectedSet
+	ProtectedLabels set.Set[string] // Use the generic set from pkg
 }
 
 func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -74,11 +39,10 @@ func (r *NamespaceLabelReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 }
 
 func (r *NamespaceLabelReconciler) getNamespaceLabel(ctx context.Context, req ctrl.Request) (*danateamv1.NamespaceLabel, error) {
-	logger := log.FromContext(ctx)
 	var nsLabel danateamv1.NamespaceLabel
 	err := r.Get(ctx, req.NamespacedName, &nsLabel)
 	if err != nil {
-		logger.Error(err, "Failed to fetch NamespaceLabel")
+		r.Logger.Error(err, "Failed to fetch NamespaceLabel")
 	}
 	return &nsLabel, err
 }
@@ -93,6 +57,7 @@ func (r *NamespaceLabelReconciler) getNamespace(ctx context.Context, namespaceNa
 	return &namespace, nil
 }
 
+// applyLabels applies tenant's labels from NamespaceLabel to Namespace.
 func (r *NamespaceLabelReconciler) applyLabels(ctx context.Context, namespace *corev1.Namespace, nsLabel *danateamv1.NamespaceLabel) error {
 	if namespace.Labels == nil {
 		namespace.Labels = make(map[string]string)
@@ -152,28 +117,11 @@ func (r *NamespaceLabelReconciler) handleSuccessfulReconciliation(ctx context.Co
 }
 
 func (r *NamespaceLabelReconciler) updateCondition(status *danateamv1.NamespaceLabelStatus, conditionType, statusValue, reason, message string) {
-	now := metav1.NewTime(time.Now())
-	for i, condition := range status.Conditions {
-		if condition.Type == conditionType {
-			status.Conditions[i].Status = statusValue
-			status.Conditions[i].Reason = reason
-			status.Conditions[i].Message = message
-			status.Conditions[i].LastTransitionTime = now
-			return
-		}
-	}
-
-	status.Conditions = append(status.Conditions, danateamv1.Condition{
-		Type:               conditionType,
-		Status:             statusValue,
-		Reason:             reason,
-		Message:            message,
-		LastTransitionTime: now,
-	})
+	helpers.UpdateCondition(status, conditionType, statusValue, reason, message) // Use helper from pkg
 }
 
 func (r *NamespaceLabelReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	r.ProtectedLabels = loadProtectedLabelsFromEnv()
+	r.ProtectedLabels = helpers.LoadProtectedLabelsFromEnv()
 	r.Logger = ctrl.Log.WithName("namespaceLabelController")
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&danateamv1.NamespaceLabel{}).

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	danateamv1 "github.com/matanamar10/namesapcelabel/api/v1"
-	"github.com/matanamar10/namesapcelabel/pkg/set"
+	"github.com/matanamar10/namesapcelabel/internal/pkg/set"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
